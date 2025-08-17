@@ -218,11 +218,13 @@ def configure_cli(temp_curve, speed_curve, idle_speed, poll_interval, view):
     
     if temp_curve:
         temp_curve = [int(x) for x in temp_curve.split(",")]
+        doc["service"]["TEMP_CURVE"] = temp_curve
     else:
         temp_curve = doc["service"]["TEMP_CURVE"]
 
     if speed_curve:
         speed_curve = [int(x) for x in speed_curve.split(",")]
+        doc["service"]["SPEED_CURVE"] = speed_curve
     else:
         speed_curve = doc["service"]["SPEED_CURVE"]
 
@@ -253,7 +255,7 @@ def service_cli(arg):
                 print(f"  omen-fan service is already running with PID:{ipc.read()}")
         else:
             bios_control(False)
-            subprocess.Popen("omen-fand")
+            subprocess.Popen([sys.executable, "omen-fand.py"])
             print("  omen-fan service has been started")
 
     elif arg in ["stop", "0"]:
