@@ -26,9 +26,9 @@ BIOS_OFFSET = 98  # 0x62
 TIMER_OFFSET = 99  # 0x63
 BOOST_OFFSET = 236  # 0xEC
 
-FAN1_SPEED_MAX = 55
-FAN2_SPEED_MAX = 57
-DEVICE_LIST = ["OMEN by HP Laptop 16"]
+FAN1_SPEED_MAX = 50  # actually 55, but that is useless anyway
+FAN2_SPEED_MAX = 50  # actually 51, but that is useless anyway
+DEVICE_LIST = ["OMEN by HP Laptop"]
 
 
 def is_root(state=0):
@@ -53,6 +53,11 @@ def startup_check():
         doc["service"]["SPEED_CURVE"] = [20, 40, 60, 70, 85, 100]
         doc["service"]["IDLE_SPEED"] = 0
         doc["service"]["POLL_INTERVAL"] = 1
+        doc["service"]["SPEED_COOLDOWN"] = 10
+        doc["service"]["SPEED_SMOOTHING"] = 1.0
+        doc["service"]["SPEED_DEADBAND"] = 4
+        doc["service"]["ENABLE_LOGGING"] = True
+        doc["service"]["LOG_INTERVAL"] = 5
 
         doc.add("script", tomlkit.table())
         doc["script"]["BYPASS_DEVICE_CHECK"] = 0
@@ -191,7 +196,9 @@ def boost_cli(arg):
 
 
 @cli.command(
-    name="configure", aliases=["config", "c"], help="Configure Fan curves for service"
+    name="configure",
+    aliases=["config", "c"],
+    help="Configure Fan curves and behavior for service",
 )
 @click.option(
     "--temp-curve",
@@ -205,17 +212,45 @@ def boost_cli(arg):
 )
 @click.option("--idle-speed", type=click.IntRange(0, 100), help="Idle fan speed value")
 @click.option("--poll-interval", type=click.FLOAT, help="Poll interval in seconds")
+@click.option(
+    "--speed-cooldown",
+    type=click.IntRange(1, 300),
+    help="Cooldown time in seconds before allowing speed decreases",
+)
+@click.option(
+    "--speed-smoothing",
+    type=click.FloatRange(0.1, 1.0),
+    help="Speed smoothing factor (0.1=heavy smoothing, 1.0=no smoothing)",
+)
+@click.option(
+    "--speed-deadband",
+    type=click.IntRange(1, 20),
+    help="Minimum percentage change required to adjust fan speed",
+)
+@click.option(
+    "--enable-logging", type=bool, help="Enable detailed logging (True/False)"
+)
+@click.option(
+    "--log-interval", type=click.IntRange(1, 60), help="Log status every N seconds"
+)
 @click.option("--view", is_flag=True, help="Show current config")
-def configure_cli(temp_curve, speed_curve, idle_speed, poll_interval, view):
+def configure_cli(
+    temp_curve,
+    speed_curve,
+    idle_speed,
+    poll_interval,
+    speed_cooldown,
+    speed_smoothing,
+    speed_deadband,
+    enable_logging,
+    log_interval,
+    view,
+):
     is_root()
-    
+
     with open(CONFIG_FILE, "r") as file:
         doc = tomlkit.loads(file.read())
-    
-    if view:
-        print(tomlkit.dumps(doc))
-        return
-    
+
     if temp_curve:
         temp_curve = [int(x) for x in temp_curve.split(",")]
         doc["service"]["TEMP_CURVE"] = temp_curve
@@ -228,12 +263,26 @@ def configure_cli(temp_curve, speed_curve, idle_speed, poll_interval, view):
     else:
         speed_curve = doc["service"]["SPEED_CURVE"]
 
-
     if idle_speed is not None:
         doc["service"]["IDLE_SPEED"] = idle_speed
 
     if poll_interval is not None:
         doc["service"]["POLL_INTERVAL"] = poll_interval
+
+    if speed_cooldown is not None:
+        doc["service"]["SPEED_COOLDOWN"] = speed_cooldown
+
+    if speed_smoothing is not None:
+        doc["service"]["SPEED_SMOOTHING"] = speed_smoothing
+
+    if speed_deadband is not None:
+        doc["service"]["SPEED_DEADBAND"] = speed_deadband
+
+    if enable_logging is not None:
+        doc["service"]["ENABLE_LOGGING"] = enable_logging
+
+    if log_interval is not None:
+        doc["service"]["LOG_INTERVAL"] = log_interval
 
     if len(temp_curve) != len(speed_curve):
         raise click.UsageError("TEMP_CURVE and SPEED_CURVE must have the same length")
@@ -242,6 +291,7 @@ def configure_cli(temp_curve, speed_curve, idle_speed, poll_interval, view):
 
     with open(CONFIG_FILE, "w") as file:
         file.write(tomlkit.dumps(doc))
+    print(f"{CONFIG_FILE}:\n{'-'*20}\n{tomlkit.dumps(doc)}")
 
 
 @cli.command(name="service", aliases=["e"], help="Start/Stop Fan management service")
@@ -336,6 +386,78 @@ def version_cli():
     print("  Omen Fan Control")
     print("  Version 0.2.1")
     print("  Made and tested on Omen 16-c0xxx by alou-S")
+
+
+@cli.command(name="logs", aliases=["l"], help="Show live fan control logs")
+@click.option("--follow", "-f", is_flag=True, help="Follow log output (like tail -f)")
+@click.option("--lines", "-n", type=int, default=20, help="Number of lines to show")
+def logs_cli(follow, lines):
+    """Show fan control logs with temperature and speed information"""
+    log_file = "/tmp/omen-fand.log"
+
+    if not os.path.exists(log_file):
+        print("❌ No log file found. Is the fan service running?")
+        print("   Start the service with: sudo omen-fan service start")
+        return
+
+    try:
+        if follow:
+            print("📊 Live Fan Control Logs (Press Ctrl+C to stop)")
+            print("=" * 60)
+
+            # Show last N lines first
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    all_lines = f.readlines()
+                    for line in all_lines[-lines:]:
+                        print(line.rstrip())
+            except Exception:
+                pass
+
+            # Follow new lines
+            import subprocess
+
+            try:
+                proc = subprocess.Popen(
+                    ["tail", "-f", log_file],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+
+                for line in iter(proc.stdout.readline, ""):
+                    if line:
+                        print(line.rstrip())
+
+            except KeyboardInterrupt:
+                proc.terminate()
+                print("\n🛑 Log following stopped")
+            except Exception as e:
+                print(f"❌ Error following logs: {e}")
+
+        else:
+            # Show last N lines
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    all_lines = f.readlines()
+
+                print(
+                    f"📊 Last {min(lines, len(all_lines))} lines from fan control logs:"
+                )
+                print("=" * 60)
+
+                for line in all_lines[-lines:]:
+                    print(line.rstrip())
+
+                print("=" * 60)
+                print(f"💡 Use 'omen-fan logs -f' to follow live logs")
+                print(f"💡 Log file location: {log_file}")
+
+            except Exception as e:
+                print(f"❌ Error reading logs: {e}")
+
+    except Exception as e:
+        print(f"❌ Error accessing log file: {e}")
 
 
 if __name__ == "__main__":
