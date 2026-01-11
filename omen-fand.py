@@ -28,17 +28,23 @@ with open(CONFIG_FILE, "r") as file:
     SPEED_CURVE = doc["service"]["SPEED_CURVE"].unwrap()
     IDLE_SPEED = doc["service"]["IDLE_SPEED"].unwrap()
     POLL_INTERVAL = doc["service"]["POLL_INTERVAL"].unwrap()
-    
+
     # Get cooldown period from config, default to 15 seconds if not set
     SPEED_COOLDOWN = doc["service"].get("SPEED_COOLDOWN", 15)
-    
+
     # Get smoothing and deadband settings
-    SPEED_SMOOTHING = doc["service"].get("SPEED_SMOOTHING", 0.3)  # Smoothing factor (0.1-1.0)
-    SPEED_DEADBAND = doc["service"].get("SPEED_DEADBAND", 3)      # Minimum % change to adjust
-    
+    SPEED_SMOOTHING = doc["service"].get(
+        "SPEED_SMOOTHING", 0.3
+    )  # Smoothing factor (0.1-1.0)
+    SPEED_DEADBAND = doc["service"].get(
+        "SPEED_DEADBAND", 3
+    )  # Minimum % change to adjust
+
     # Get logging settings
-    ENABLE_LOGGING = doc["service"].get("ENABLE_LOGGING", True)   # Enable detailed logging
-    LOG_INTERVAL = doc["service"].get("LOG_INTERVAL", 5)          # Log every N seconds
+    ENABLE_LOGGING = doc["service"].get(
+        "ENABLE_LOGGING", False
+    )  # Enable detailed logging
+    LOG_INTERVAL = doc["service"].get("LOG_INTERVAL", 5)  # Log every N seconds
 
 # Precalculate slopes to reduce compute time.
 slope = []
@@ -130,7 +136,9 @@ is_root()
 
 log_message(f"Service started - PID: {os.getpid()}")
 log_message(f"Config: TEMP_CURVE={TEMP_CURVE}, SPEED_CURVE={SPEED_CURVE}")
-log_message(f"Settings: COOLDOWN={SPEED_COOLDOWN}s, SMOOTHING={SPEED_SMOOTHING}, DEADBAND={SPEED_DEADBAND}%")
+log_message(
+    f"Settings: COOLDOWN={SPEED_COOLDOWN}s, SMOOTHING={SPEED_SMOOTHING}, DEADBAND={SPEED_DEADBAND}%"
+)
 
 while True:
     cpu_temp, gpu_temp, temp = get_temp()
@@ -153,7 +161,9 @@ while True:
         smoothed_speed = target_speed
     else:
         # Smooth the target speed to reduce oscillation
-        smoothed_speed = (SPEED_SMOOTHING * target_speed) + ((1 - SPEED_SMOOTHING) * smoothed_speed)
+        smoothed_speed = (SPEED_SMOOTHING * target_speed) + (
+            (1 - SPEED_SMOOTHING) * smoothed_speed
+        )
 
     # Hysteresis logic: Always allow speed increases, but delay decreases
     hysteresis_action = ""
@@ -174,7 +184,9 @@ while True:
         else:
             # Still in cooldown, maintain current speed
             proposed_speed = current_speed
-            hysteresis_action = f"COOLDOWN({int(SPEED_COOLDOWN - time_since_increase)}s)"
+            hysteresis_action = (
+                f"COOLDOWN({int(SPEED_COOLDOWN - time_since_increase)}s)"
+            )
     else:
         # Speed unchanged
         proposed_speed = smoothed_speed
@@ -187,22 +199,26 @@ while True:
     if speed_difference >= SPEED_DEADBAND or speed_old == -1:
         # Round to nearest 5% to create stable speed steps
         final_speed = round(proposed_speed / 5) * 5
-        
+
         # Ensure we stay within bounds
         final_speed = max(0, min(100, final_speed))
-        
+
         # Only update fans if speed actually changed
         if speed_old != final_speed:
             speed_old = final_speed
             update_fan(FAN1_MAX * final_speed / 100, FAN2_MAX * final_speed / 100)
-            log_message(f"SPEED CHANGE: CPU={cpu_temp}°C GPU={gpu_temp}°C Max={temp}°C | Target={target_speed:.1f}% Smoothed={smoothed_speed:.1f}% Final={final_speed}% | Action={hysteresis_action}")
+            log_message(
+                f"SPEED CHANGE: CPU={cpu_temp}°C GPU={gpu_temp}°C Max={temp}°C | Target={target_speed:.1f}% Smoothed={smoothed_speed:.1f}% Final={final_speed}% | Action={hysteresis_action}"
+            )
     else:
         deadband_applied = True
 
     # Log periodic status updates
     if current_time - last_log_time >= LOG_INTERVAL:
         status = "DEADBAND" if deadband_applied else hysteresis_action
-        log_message(f"STATUS: CPU={cpu_temp}°C GPU={gpu_temp}°C Max={temp}°C | Target={target_speed:.1f}% Smoothed={smoothed_speed:.1f}% Current={speed_old}% | {status}")
+        log_message(
+            f"STATUS: CPU={cpu_temp}°C GPU={gpu_temp}°C Max={temp}°C | Target={target_speed:.1f}% Smoothed={smoothed_speed:.1f}% Current={speed_old}% | {status}"
+        )
         last_log_time = current_time
 
     bios_control(False)
