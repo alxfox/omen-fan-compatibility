@@ -1,229 +1,141 @@
 # omen-fan (Community Fork)
 
-> ⚠️ **This is a community fork of the original [omen-fan project](https://github.com/alou-S/omen-fan)**  
-> ⚠️ **USE AT YOUR OWN RISK - No warranty provided**  
-> ⚠️ **May cause hardware damage or system instability**
+A tool to control fans on HP Omen laptops on Unix. 
 
-A utility to manually control the fans of HP Omen laptops with enhanced compatibility testing tools.
+This fork adds compatibility tests to reduce risk before using fan control.
 
-## 🔍 What's Different in This Fork
+## ⚠️ Warning
 
-This fork adds **comprehensive compatibility testing tools** to help users safely determine if their HP Omen laptop is compatible with fan control before attempting to use the main functionality.
+Use at your own risk. Direct EC (Embedded Controller) access could cause instability, disable your fan control or even damage hardware. No warranty.
 
-### New Testing Tools
+## Quick start
 
-1. **`compatibility_check.py`** - **SAFE** read-only compatibility test
-2. **`ec_write_test.py`** - **DANGEROUS** write test for advanced users
+1. Clone the repo:
 
-## ⚠️ CRITICAL WARNINGS
-
-- **Hardware Risk**: Directly accessing the Embedded Controller (EC) can potentially damage your laptop
-- **No Warranty**: This software comes with absolutely no warranty or guarantee
-- **System Instability**: Incorrect fan control can cause overheating or system crashes
-- **Bricking Risk**: Writing wrong values to the EC could potentially brick fan control
-- **Community Support**: This is a community fork - official support is not provided
-
-**ALWAYS** ensure you can reboot your system if something goes wrong.
-
-## 🚀 Quick Start (Recommended Testing Process)
-
-> 📖 **For complete testing workflow, see [TESTING_WORKFLOW.md](TESTING_WORKFLOW.md)**
-
-### Step 1: Safe Compatibility Check
 ```bash
-# Clone this repository
-git clone https://github.com/[your-username]/omen-fan
+git clone https://github.com/alxfox/omen-fan
 cd omen-fan
-
-# Run the SAFE compatibility check first
-sudo python3 compatibility_check.py
 ```
 
-### Step 2: Advanced Testing (Only if Step 1 shows compatibility)
+2. Install Python dependencies, I recommend using a virtual environment like this:
+
 ```bash
-# Only run this if compatibility_check.py shows positive results
-# This test WRITES to the EC - use extreme caution
-sudo python3 ec_write_test.py
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 ```
 
-### Step 3: Main Functionality (Only if both tests pass)
+Note: These scripts require sudo, which means you must explicitly use `.venv/bin/python` instead of `python` every time you call the script:
+
 ```bash
-# If both tests pass, you can try the main fan control
-sudo python3 omen-fan.py --help
+sudo .venv/bin/python compatibility_check.py
 ```
 
-**📋 Testing Workflow Summary:**
-- 🟢 **Phase 1**: Read-only compatibility check (should be very safe)
-- 🟡 **Phase 2**: EC write testing (MODERATE-HIGH risk, ~95% recoverable)
-- 🔴 **Phase 3**: Production fan control (HIGH risk, user dependent recovery)
+3. Run the safe, read-only check first (attempts to read from EC memory):
 
-## 📋 Original Features
-
-- Manual fan speed control for HP Omen laptops
-- Active fan speed adjustment service based on temperatures
-- Boost mode support via sysfs
-- Works on various HP Omen and some Victus laptops
-- Originally made and tested on Omen 16-c0140AX, also tested on Omen 17-ck2000 
-
-## 🛠️ Installation & Usage
-
-### Prerequisites
 ```bash
-# Ensure ec_sys module can be loaded
+sudo .venv/bin/python compatibility_check.py
+```
+
+4. If compatible, you may run the write test (attempts to write into EC memory, reads the value to see if it changed, then resets the values)
+
+```bash
+sudo .venv/bin/python ec_write_test.py
+```
+
+4. If both tests pass, you can use the main tool:
+
+```bash
+sudo .venv/bin/python omen-fan.py --help
+```
+
+
+
+## Tests (summary)
+
+- compatibility_check.py — read-only checks (recommended first step).
+- ec_write_test.py — writes to the EC (moderate to high risk). Use only if compatibility check passes.
+- omen-fan.py — the actual fan control script; changes EC state and can override BIOS fan control.
+
+## Install
+
+Ensure EC module is loaded and install Python deps:
+
+```bash
 sudo modprobe ec_sys write_support=1
-
-# Install Python dependencies (if not already available)
 pip install click tomlkit click-aliases
 ```
 
-### Testing Your Laptop - Detailed Risk Analysis
+## Configuration
 
-#### 🟢 Step 1: Compatibility Check (Should be very safe)
+Use the built-in `configure` command to view or update settings in `/etc/omen-fan/config.toml`. The command requires root.
+
+The first time you use the command, a default configuration will be created.
+
+- View current config:
+
 ```bash
-sudo python3 compatibility_check.py
+sudo .venv/bin/python omen-fan.py configure --view
 ```
 
-**What it tests:**
-- ✅ Reads EC memory locations (READ-ONLY operations)
-- ✅ Checks if your laptop model matches known compatible devices
-- ✅ Verifies HP WMI interface availability for fan speed reading
-- ✅ Tests access to critical EC memory offsets (temperatures, fan control registers)
-- ✅ Analyzes current BIOS control state
+- Set values (examples):
 
-**Risk Level: 🟢 Should be very safe (but no guarantees)**
-- **No system changes planned** - only reads existing values
-- **Should not damage hardware** - read operations are generally safe
-- **Should not affect fan control** - no writes to EC registers
-- **Recovery**: Not expected to be needed - no changes planned
-
----
-
-#### 🟡 Step 2: EC Write Test (MODERATE TO HIGH RISK)
 ```bash
-sudo python3 ec_write_test.py
+sudo .venv/bin/python omen-fan.py configure --temp-curve 50,60,70,80,87,93 --speed-curve 20,40,60,70,85,100 --idle-speed 0
 ```
 
-**What it tests:**
+Editable settings
 
-**Test 2.1: BIOS Control Toggle**
-- 🔄 Disables BIOS fan control (sets EC offset 98 to value 6)
-- 🔄 Re-enables BIOS fan control (sets EC offset 98 to value 0)
-- **Risk**: Temporary loss of automatic fan control
-- **Recovery**: Automatic restoration + reboot restores BIOS control
+- TEMP_CURVE — list of temperature thresholds (must be ascending)
+- SPEED_CURVE — list of fan speeds corresponding to TEMP_CURVE (same length required)
+- IDLE_SPEED — fan speed when idle (0–100)
+- POLL_INTERVAL — seconds between polls
+- SPEED_COOLDOWN — seconds before allowing speed decreases
+- SPEED_SMOOTHING — smoothing factor (0.1–1.0)
+- SPEED_DEADBAND — minimum % change to trigger an update
+- ENABLE_LOGGING — enable/disable detailed logging (True/False)
+- LOG_INTERVAL — seconds between log entries
+- BYPASS_DEVICE_CHECK — (script) allow running on unsupported devices
 
-**Test 2.2: Manual Fan Speed Control**
-- 🔄 Sets fan speeds to safe test value (20% = ~2000 RPM)
-- 🔄 Monitors system for 10 seconds while fans run at test speed
-- 🔄 Continuously checks temperatures to prevent overheating
-- **Risk**: Manual override of fan speeds, potential overheating if test fails
-- **Recovery**: Automatic restoration + reboot restores BIOS control
+Validation notes
 
-**Overall Risk Level: 🟡 MODERATE RISK**
-- **Potential Issues:**
-  - Temporary loss of automatic thermal protection
-  - Risk of overheating if fan control gets stuck
-  - Possible system instability during test
-  - Small chance of corrupting EC fan control settings
-- **Recovery Options:**
-  - ✅ **Automatic**: Script restores original values on completion
-  - ✅ **Manual**: Ctrl+C triggers emergency cleanup
-  - ✅ **Reboot**: Simple reboot restores BIOS fan control
-  - ❌ **Worst Case**: EC corruption could require BIOS reset/repair
+- `TEMP_CURVE` and `SPEED_CURVE` must have the same length and `TEMP_CURVE` must be in ascending order.
+- The `configure` command performs basic validation and will raise an error on invalid input.
 
-**Important**: This test has **multiple safety layers** but still carries risk
+Starting the script
 
----
+- Manual: start/stop the service with the `service` command:
 
-#### 🔴 Step 3: Main Functionality (HIGH RISK - Production Use)
 ```bash
-sudo python3 omen-fan.py
+sudo .venv/bin/python omen-fan.py service start
+sudo .venv/bin/python omen-fan.py service stop
 ```
 
-**What it does:**
-- 🔄 **Disables BIOS control permanently** until manually restored
-- 🔄 **Direct EC fan speed control** with user-defined values
-- 🔄 **Temperature-based automatic curves** (omen-fand service)
-- 🔄 **Boost mode control** via HP WMI interface
+- Convenience script: `fan_control_service.sh`:
 
-**Risk Level: 🔴 HIGH RISK**
-- **Potential Issues:**
-  - Complete override of laptop's thermal protection
-  - Risk of overheating and hardware damage if curves are wrong
-  - Possible permanent corruption of EC settings
-  - System instability or crashes
-  - Fan control could get stuck in manual mode
-- **Recovery Options:**
-  - ✅ **Command**: `sudo python3 omen-fan.py bios-control 1`
-  - ✅ **Reboot**: Usually restores BIOS control
-  - ❌ **Worst Case**: May require BIOS reset, CMOS clear, or hardware repair
+```bash
+./fan_control_service.sh
+```
 
-**⚠️ Only use after both previous tests pass successfully!**
+The convenience script uses its own path and venv; use the venv Python directly if you run the service from a different location or from systemd.
 
-## 🆘 Emergency Recovery
+## Emergency recovery
 
-> 📖 **For detailed recovery procedures, see [EMERGENCY_RECOVERY.md](EMERGENCY_RECOVERY.md)**
+If something does goes wrong:
 
-**Quick Emergency Actions:**
-1. **🚨 High Temperature (>85°C)**: Shut down immediately
-2. **⚡ Restore BIOS Control**: `sudo python3 omen-fan.py bios-control 1`
-3. **🔄 Simple Reboot**: Usually fixes most fan control issues
-4. **🔧 BIOS Reset**: Reset BIOS to defaults if fans remain stuck
+- Reboot - BIOS should restore fan control.
+- You may use the script to return BIOS control with:
 
-**Recovery Success Rates:**
-- � **Reboot**: ~95% success rate
-- 🟡 **BIOS Reset**: ~85% success rate  
-- � **CMOS Clear**: ~60% success rate
-- 🔴 **Hardware Repair**: Required in ~5% of cases
+```bash
+sudo python3 omen-fan.py bios-control 1
+```
 
-## 📊 Compatibility Results
+- If you disable/lower fan speed too much, your system might overheat. If you notice this, shut down immediately. On reboot, the fans should reset their settings.
 
-### Known Compatible Devices
-- HP OMEN by HP Laptop 16 (original target)
-- HP OMEN by HP Laptop (community tested)
-- Various HP Victus laptops (community reports)
+## Contributing
 
-### Testing Status Legend
-- 🟢 **Highly Compatible**: All systems functional
-- 🟡 **Possibly Compatible**: Some features missing
-- 🔴 **Incompatible**: Major issues detected
+Run `compatibility_check.py` and open an issue with your model and results.
 
-## 🆘 Emergency Recovery
+## License and disclaimer
 
-If something goes wrong:
-
-1. **Immediate**: Reboot your laptop
-2. **If fans stuck**: Reboot and let BIOS take control
-3. **If overheating**: Immediately shut down and cool the system
-4. **Re-enable BIOS control**:
-   ```bash
-   sudo python3 omen-fan.py bios-control 1
-   ```
-
-## 📖 Documentation
-
-- Use `omen-fan.py help` to see all available subcommands
-- EC Probe documentation: [docs/probes.md](docs/probes.md)
-- Original project: [alou-S/omen-fan](https://github.com/alou-S/omen-fan)
-
-## 🤝 Contributing to Compatibility
-
-If you test this on your laptop, please report results:
-
-1. Run `compatibility_check.py`
-2. Share your laptop model and test results
-3. Create an issue with your findings
-4. Help expand the compatibility database
-
-## ⚖️ Legal Disclaimer
-
-This software is provided "AS IS" without warranty of any kind. The authors and contributors are not responsible for any damage, data loss, or system instability that may result from using this software. Use at your own risk.
-
-## 🙏 Credits
-
-- **Original Author**: [alou-S](https://github.com/alou-S) - Creator of the original omen-fan project
-- **Community Fork**: Enhanced with compatibility testing tools
-- **Contributors**: Community members who test and report compatibility
-
----
-
-**Remember: Always test compatibility safely before attempting write operations!**
+Provided as-is with no warranty. Authors are not responsible for damage or data loss.
